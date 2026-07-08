@@ -1,5 +1,5 @@
 streamlit
 ccxt
 pandas
-ta
+pandas-ta
 requests
