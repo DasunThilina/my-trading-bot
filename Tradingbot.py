@@ -1,151 +1,127 @@
 import streamlit as st
 import ccxt
-import time
 import pandas as pd
+import pandas_ta as ta
+import time
 import requests
 
-# වෙබ් පිටුවේ ප්‍රධාන සැකසුම් (Page Configuration)
+# --- වෙබ් පිටුවේ ප්‍රධාන සැකසුම් ---
 st.set_page_config(page_title="Crypto Trading Bot", page_icon="🤖", layout="centered")
 st.title("🤖 Live Crypto Trading Bot")
-st.write("ඔයාගේ Exchange එක ආරක්ෂිතව සම්බන්ධ කරලා ලයිව් ට්‍රේඩින් ආරම්භ කරන්න.")
+st.write("ඔබේ Exchange එක ආරක්ෂිතව සම්බන්ධ කරලා ලයිව් ට්‍රේඩින් ආරම්භ කරන්න.")
+st.markdown("---")
 
-# බොට් ක්‍රියාත්මක වන තත්ත්වය පාලනය කිරීමට (Session State)
-if "is_running" not in st.session_state:
-    st.session_state.is_running = False
+# --- 1. Exchange සැකසුම් ---
+st.subheader("🏦 1. Exchange සැකසුම්")
+exchange_id = st.selectbox("Exchange එක තෝරන්න:", ["okx", "bybit", "binance"])
+api_key = st.text_input("API Key:")
+secret_key = st.text_input("Secret Key:", type="password")
+password = st.text_input("Passphrase (OKX සඳහා පමණි, වෙනත් ඒවාට හිස්ව තබන්න):", type="password")
+st.markdown("---")
 
-# ටෙලිග්‍රෑම් පණිවිඩ යවන ශ්‍රිතය (Telegram Notification Function)
-def send_telegram_message(token, chat_id, message):
-    try:
-        url = f"https://api.telegram.org/bot{token}/sendMessage"
-        payload = {"chat_id": chat_id, "text": message}
-        requests.post(url, json=payload)
-    except Exception as e:
-        st.error(f"Telegram පණිවිඩය යැවීමේදී දෝෂයක්: {e}")
+# --- 2. ට්‍රේඩින් සැකසුම් (Trading Settings) ---
+st.subheader("⚙️ 2. ට්‍රේඩින් සැකසුම් (Trading Settings)")
+# කාසිය තේරීමට Dropdown එක
+symbol = st.selectbox("Trade කරන Coin එක තෝරන්න (Symbol):", ["TRX/USDT", "BTC/USDT", "ETH/USDT", "SOL/USDT", "TON/USDT"])
 
-# RSI අගය ගණනය කරන ශ්‍රිතය
-def calculate_rsi(exchange, symbol, timeframe='15m', period=14):
-    try:
-        ohlcv = exchange.fetch_ohlcv(symbol, timeframe, limit=100)
-        df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-        
-        delta = df['close'].diff()
-        gain = (delta.where(delta > 0, 0)).rolling(window=period).mean()
-        loss = (-delta.where(delta < 0, 0)).rolling(window=period).mean()
-        
-        rs = gain / loss
-        rsi = 100 - (100 / (1 + rs))
-        return rsi.iloc[-1]
-    except Exception as e:
-        st.error(f"RSI දත්ත ලබාගැනීමේ දෝෂයක්: {e}")
-        return None
-
-# --- UI සැකසුම් (User Interface) ---
-st.header("⚙️ බොට් සැකසුම් (Settings)")
-
-# Exchange එක තෝරාගැනීම
-exchange_name = st.selectbox("Exchange එක තෝරන්න:", ["Bybit", "OKX", "Binance"])
-
-# API Keys ඇතුළත් කිරීමේ කොටු
-api_key = st.text_input("Exchange API Key එක ඇතුළත් කරන්න:", type="password")
-secret_key = st.text_input("Exchange Secret Key එක ඇතුළත් කරන්න:", type="password")
-
-# OKX තේරුවොත් විතරක් Passphrase කොටුව පෙන්වීම
-passphrase = ""
-if exchange_name == "OKX":
-    passphrase = st.text_input("OKX Passphrase (API Password) එක ඇතුළත් කරන්න:", type="password")
-
-st.subheader("📱 Telegram සම්බන්ධතාවය")
-tg_token = st.text_input("Telegram Bot Token එක ඇතුළත් කරන්න:", type="password")
-tg_chat_id = st.text_input("Telegram Chat ID එක ඇතුළත් කරන්න:")
-
-st.subheader("💰 ට්‍රේඩින් උපදෙස්")
-symbol = st.text_input("ਟ්‍රේਡ කරන්න ඕන කාසිය (Symbol):", value="BTC/USDT")
+# අවම මුදල $1 දක්වා වෙනස් කර ඇත
 amount = st.number_input("එක් වරකට ට්‍රේඩ් කරන මුදල (Amount in USDT):", min_value=1.0, value=1.0, step=1.0)
 
-# --- බොට් පාලන බොත්තම් (Bot Controls) ---
-st.header("▶️ බොට් පාලනය (Bot Control)")
+# RSI අගයන් පරිශීලකයාට (User) වෙනස් කළ හැකි පරිදි සැකසීම
 col1, col2 = st.columns(2)
-
 with col1:
-    if st.button("▶ START BOT", disabled=st.session_state.is_running):
-        if not api_key or not secret_key or not tg_token or not tg_chat_id or (exchange_name == "OKX" and not passphrase):
-            st.error("කරුණාකර සියලුම විස්තර සහ API Keys නිවැරදිව ඇතුළත් කරන්න!")
-        else:
-            st.session_state.is_running = True
-            st.rerun()
-
+    rsi_buy = st.number_input("RSI Buy Level (මිලදී ගන්නා අවමය):", min_value=10, max_value=50, value=40)
 with col2:
-    if st.button("⏹ STOP BOT", disabled=not st.session_state.is_running):
-        st.session_state.is_running = False
-        st.rerun()
+    rsi_sell = st.number_input("RSI Sell Level (විකුණන උපරිමය):", min_value=50, max_value=90, value=60)
+st.markdown("---")
 
-# --- ලයිව් ට්‍රේඩින් ලූප් එක (Live Trading Loop) ---
-if st.session_state.is_running:
-    st.success("බොට් සාර්ථකව ආරම්භ විය! දැන් පසුබිමෙන් ක්‍රියාත්මක වේ.")
-    
-    status_box = st.empty()
-    log_box = st.empty()
-    
-    # Exchange එක සක්‍රීය කිරීම
-    try:
-        exchange_class = getattr(ccxt, exchange_name.lower())
+# --- 3. Telegram සැකසුම් ---
+st.subheader("📱 3. Telegram දැනුම්දීම් සැකසුම්")
+tg_bot_token = st.text_input("Telegram Bot Token:")
+tg_chat_id = st.text_input("Telegram Chat ID:")
+
+def send_telegram_message(message):
+    """ටෙලිග්‍රෑම් වෙත පණිවිඩ යැවීමේ ශ්‍රිතය"""
+    if tg_bot_token and tg_chat_id:
+        url = f"https://api.telegram.org/bot{tg_bot_token}/sendMessage"
+        payload = {"chat_id": tg_chat_id, "text": message}
+        try:
+            requests.post(url, json=payload)
+        except:
+            pass
+
+st.markdown("---")
+
+# --- 4. බොට් ක්‍රියාත්මක වීමේ කොටස (Bot Logic) ---
+if st.button("▶ START BOT"):
+    if not api_key or not secret_key:
+        st.error("⚠️ කරුණාකර API Key සහ Secret Key ඇතුළත් කරන්න.")
+    else:
+        st.success("✅ බොට් සාර්ථකව ආරම්භ විය! පහතින් තොරතුරු යාවත්කාලීන වේවි.")
+        
+        # Exchange එකට සම්බන්ධ වීම
         exchange_params = {
             'apiKey': api_key,
             'secret': secret_key,
             'enableRateLimit': True,
         }
-        # OKX සඳහා Passphrase එක එකතු කිරීම
-        if exchange_name == "OKX":
-            exchange_params['password'] = passphrase
+        if exchange_id == 'okx' and password:
+            exchange_params['password'] = password
             
-        exchange = exchange_class(exchange_params)
-        
-    except Exception as e:
-        st.error(f"Exchange එකට සම්බන්ධ වීමට නොහැක: {e}")
-        st.session_state.is_running = False
-
-    # අඛණ්ඩව දුවන ලූප් එක (තත්පර 60න් 60ට මාකට් එක බලයි)
-    iteration = 1
-    while st.session_state.is_running:
-        status_box.info(f"🔄 වටය {iteration}: මාකට් එක විශ්ලේෂණය කරමින් පවතී...")
-        
-        # RSI අගය ලබා ගැනීම
-        rsi_val = calculate_rsi(exchange, symbol)
-        
-        if rsi_val is not None:
-            log_box.write(f"📊 වත්මන් RSI අගය ({symbol}): {rsi_val:.2f}")
+        try:
+            exchange_class = getattr(ccxt, exchange_id)
+            exchange = exchange_class(exchange_params)
             
-            # --- මිලදී ගැනීමේ තීරණය (BUY LOGIC) ---
-            if rsi_val < 40:
+            placeholder = st.empty()
+            
+            while True:
                 try:
-                    status_box.warning("🚨 RSI 40 ට වඩා අඩුයි! මිලදී ගැනීමේ ඕඩරයක් (BUY) යවමින්...")
+                    # මාකට් එකේ දත්ත ලබා ගැනීම (1 minute chart)
+                    bars = exchange.fetch_ohlcv(symbol, timeframe='1m', limit=50)
+                    df = pd.DataFrame(bars, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
                     
-                    # ඇත්තටම Exchange එකට ඕඩර් එක යැවීම
-                    order = exchange.create_market_buy_order(symbol, amount)
+                    # RSI ගණනය කිරීම
+                    df['rsi'] = ta.rsi(df['close'], length=14)
                     
-                    msg = f"🟢 [BUY ORDER SUCCESS]\n• Exchange: {exchange_name}\n• Coin: {symbol}\n• Amount: {amount} USDT\n• RSI: {rsi_val:.2f}"
-                    send_telegram_message(tg_token, tg_chat_id, msg)
-                    st.toast("Buy Order එක සාර්ථකයි!", icon="🟢")
+                    current_price = df['close'].iloc[-1]
+                    current_rsi = df['rsi'].iloc[-1]
+                    
+                    # ඩෑෂ්බෝඩ් එකේ දත්ත පෙන්වීම
+                    placeholder.info(f"🔍 මාකට් එක නිරීක්ෂණය කරමින් පවතී...\n\n**Coin:** {symbol}\n**දැනට මිල:** {current_price} USDT\n**දැනට RSI අගය:** {current_rsi:.2f}")
+                    
+                    # --- Buy Logic ---
+                    if current_rsi < rsi_buy:
+                        msg = f"🟢 BUY Signal: {symbol}\nPrice: {current_price}\nRSI: {current_rsi:.2f}"
+                        send_telegram_message(msg)
+                        
+                        try:
+                            buy_amount = amount / current_price # USDT ප්‍රමාණය කොයින් ගණනට හැරවීම
+                            exchange.create_market_buy_order(symbol, buy_amount)
+                            st.success(f"BUY Order සාර්ථකයි! ({amount} USDT)")
+                        except Exception as e:
+                            st.error(f"Buy Order එක දැමීමේදී දෝෂයක්: {e}")
+                            
+                        time.sleep(120) # මිලදී ගත් පසු විනාඩි 2ක් රැඳී සිටීම
+                        
+                    # --- Sell Logic ---
+                    elif current_rsi > rsi_sell:
+                        msg = f"🔴 SELL Signal: {symbol}\nPrice: {current_price}\nRSI: {current_rsi:.2f}"
+                        send_telegram_message(msg)
+                        
+                        try:
+                            # මිලදී ගත් ප්‍රමාණයම විකිණීම සඳහා
+                            sell_amount = amount / current_price 
+                            exchange.create_market_sell_order(symbol, sell_amount)
+                            st.warning(f"SELL Order සාර්ථකයි!")
+                        except Exception as e:
+                            st.error(f"Sell Order එක දැමීමේදී දෝෂයක්: {e}")
+                            
+                        time.sleep(120) # විකුණූ පසු විනාඩි 2ක් රැඳී සිටීම
+                        
                 except Exception as e:
-                    st.error(f"Buy Order එක දැමීමේදී ප්‍රශ්නයක්: {e}")
-                    send_telegram_message(tg_token, tg_chat_id, f"❌ Buy Order Failed: {e}")
-            
-            # --- විකිණීමේ තීරණය (SELL LOGIC) ---
-            elif rsi_val > 65:
-                try:
-                    status_box.warning("🚨 RSI 65 ට වඩා වැඩියි! විකිණීමේ ඕඩරයක් (SELL) යවමින්...")
+                    placeholder.warning(f"දත්ත ලබා ගැනීමේදී සුළු දෝෂයක්. නැවත උත්සාහ කරයි... Error: {e}")
                     
-                    # ඇත්තටම Exchange එකට ඕඩර් එක යැවීම
-                    order = exchange.create_market_sell_order(symbol, amount)
-                    
-                    msg = f"🔴 [SELL ORDER SUCCESS]\n• Exchange: {exchange_name}\n• Coin: {symbol}\n• RSI: {rsi_val:.2f}"
-                    send_telegram_message(tg_token, tg_chat_id, msg)
-                    st.toast("Sell Order එක සාර්ථකයි!", icon="🔴")
-                except Exception as e:
-                    st.error(f"Sell Order එක දැමීමේදී ප්‍රශ්නයක්: {e}")
-                    send_telegram_message(tg_token, tg_chat_id, f"❌ Sell Order Failed: {e}")
-        
-        iteration += 1
-        time.sleep(60)  # විනාඩියක් (තත්පර 60ක්) නිහඬව සිට නැවත මාකට් එක බලයි
-
-    status_box.warning("🛑 බොට් සම්පූර්ණයෙන්ම නතර කරන ලදී.")
+                time.sleep(15) # තත්පර 15කට වරක් මාකට් එක චෙක් කිරීම
+                
+        except Exception as e:
+            st.error(f"Exchange එකට සම්බන්ධ වීමේදී දෝෂයක්. Keys සහ Passphrase නිවැරදි දැයි පරීක්ෂා කරන්න. Error: {e}")
