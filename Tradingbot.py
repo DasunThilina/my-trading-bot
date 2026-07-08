@@ -60,7 +60,7 @@ tg_chat_id = st.text_input("Telegram Chat ID එක ඇතුළත් කරන
 
 st.subheader("💰 ට්‍රේඩින් උපදෙස්")
 symbol = st.text_input("ਟ්‍රේਡ කරන්න ඕන කාසිය (Symbol):", value="BTC/USDT")
-amount = st.number_input("එක් වරකට ට්‍රේඩ් කරන මුදල (Amount in USDT):", min_value=5.0, value=10.0, step=1.0)
+amount = st.number_input("එක් වරකට ට්‍රේඩ් කරන මුදල (Amount in USDT):", min_value=1.0, value=1.0, step=1.0)
 
 # --- බොට් පාලන බොත්තම් (Bot Controls) ---
 st.header("▶️ බොට් පාලනය (Bot Control)")
